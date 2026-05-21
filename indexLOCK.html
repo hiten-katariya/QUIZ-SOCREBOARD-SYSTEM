@@ -1,0 +1,756 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Esports Arena Scoreboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&family=Orbitron:wght@500;700;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+    
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        display: ['Orbitron', 'sans-serif'],
+                        hud: ['Rajdhani', 'sans-serif'],
+                    },
+                    colors: {
+                        cyber: {
+                            dark: '#050b14',
+                            panel: '#0f172a',
+                            accent: '#3b82f6',
+                            gold: '#fbbf24',
+                            neon: '#0ea5e9',
+                            danger: '#ef4444'
+                        }
+                    },
+                    animation: {
+                        'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+                        'float': 'float 6s ease-in-out infinite',
+                        'glow': 'glow 2s ease-in-out infinite alternate',
+                    },
+                    keyframes: {
+                        float: {
+                            '0%, 100%': { transform: 'translateY(0)' },
+                            '50%': { transform: 'translateY(-10px)' },
+                        },
+                        glow: {
+                            'from': { boxShadow: '0 0 10px #0ea5e9, 0 0 20px #0ea5e9' },
+                            'to': { boxShadow: '0 0 20px #3b82f6, 0 0 30px #3b82f6' },
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        body { 
+            background-color: #020408;
+            background-image: 
+                radial-gradient(at 0% 0%, rgba(56, 189, 248, 0.1) 0px, transparent 50%),
+                radial-gradient(at 100% 100%, rgba(139, 92, 246, 0.1) 0px, transparent 50%),
+                linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+            background-size: 100% 100%, 100% 100%, 40px 40px, 40px 40px;
+            overflow-x: hidden;
+        }
+
+        /* Cyberpunk angled corners */
+        .cyber-clip {
+            clip-path: polygon(
+                10px 0, 100% 0, 
+                100% calc(100% - 10px), calc(100% - 10px) 100%, 
+                0 100%, 0 10px
+            );
+        }
+        
+        .cyber-clip-sm {
+            clip-path: polygon(
+                5px 0, 100% 0, 
+                100% calc(100% - 5px), calc(100% - 5px) 100%, 
+                0 100%, 0 5px
+            );
+        }
+
+        .cyber-border {
+            position: relative;
+        }
+        .cyber-border::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(45deg, transparent 5%, rgba(59, 130, 246, 0.5) 5%, rgba(59, 130, 246, 0.5) 10%, transparent 10%);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #0f172a; }
+        ::-webkit-scrollbar-thumb { background: #3b82f6; border-radius: 3px; }
+
+        /* Hide scrollbar for clean UI but allow scroll */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+
+        /* Text Glows */
+        .text-glow { text-shadow: 0 0 10px rgba(59, 130, 246, 0.5); }
+        .text-glow-gold { text-shadow: 0 0 10px rgba(251, 191, 36, 0.5); }
+    </style>
+</head>
+<body class="text-white min-h-screen font-sans">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo, useRef } = React;
+
+        // --- MOCK DATA & API HANDLER ---
+        const MOCK_STORAGE_KEY = 'esports_quiz_state';
+        
+        const DEFAULT_STATE = {
+            isGameStarted: false,
+            currentRoundIndex: 0,
+            rounds: [
+                {id: "r1", name: "Round 1"},
+                {id: "r2", name: "Round 2"},
+                {id: "r3", name: "Rapid Fire"}
+            ],
+            teams: [
+                {id: "t1", name: "Team 1", scores: {}, totalScore: 0},
+                {id: "t2", name: "Team 2", scores: {}, totalScore: 0},
+                {id: "t3", name: "Team 3", scores: {}, totalScore: 0},
+                {id: "t4", name: "Team 4", scores: {}, totalScore: 0}
+            ]
+        };
+
+        const API = {
+            getState: async () => {
+                try {
+                    const res = await fetch('/api/state');
+                    if (!res.ok) throw new Error('Server not reachable');
+                    return await res.json();
+                } catch (e) {
+                    const saved = localStorage.getItem(MOCK_STORAGE_KEY);
+                    return saved ? JSON.parse(saved) : DEFAULT_STATE;
+                }
+            },
+            updateState: async (newData) => {
+                try {
+                    await fetch('/api/update', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(newData)
+                    });
+                } catch (e) {
+                    localStorage.setItem(MOCK_STORAGE_KEY, JSON.stringify(newData));
+                }
+            },
+            resetGame: async () => {
+                try {
+                    await fetch('/api/reset', { method: 'POST' });
+                } catch (e) {
+                    localStorage.removeItem(MOCK_STORAGE_KEY);
+                }
+            },
+            // NEW: Server-side login verification
+            login: async (username, password) => {
+                const res = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+                if (!res.ok) throw new Error('Auth failed');
+                return await res.json();
+            }
+        };
+
+        // --- ICONS ---
+        const Icons = {
+            Trophy: ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/></svg>,
+            Medal: ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><circle cx="12" cy="8" r="7"/><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"/></svg>,
+            Settings: ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.47a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>,
+            Play: ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><polygon points="5 3 19 12 5 21 5 3"/></svg>,
+            Pause: ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>,
+            Save: ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>,
+            Upload: ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>,
+            Monitor: ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/></svg>,
+            Trash: ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>,
+            Plus: ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>,
+            Refresh: ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M21 2v6h-6"></path><path d="M3 12a9 9 0 0 1 15-6.7L21 8"></path><path d="M3 22v-6h6"></path><path d="M21 12a9 9 0 0 1-15 6.7L3 16"></path></svg>,
+            Alert: ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>,
+            Lock: ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>,
+        };
+
+        // --- FIXED HELPER FUNCTIONS ---
+        
+        // Use 'undefined' check to allow 0 to return as a valid number, but return null if missing
+        const getRoundScore = (team, roundId) => (team.scores && team.scores[roundId] !== undefined) ? team.scores[roundId] : null;
+        
+        const calculateTotalScore = (team) => !team.scores ? 0 : Object.values(team.scores).reduce((a, b) => a + b, 0);
+
+        const getInitials = (name) => {
+            return name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+        };
+
+        const getRandomColor = (id) => {
+            const colors = ['bg-blue-500', 'bg-purple-500', 'bg-emerald-500', 'bg-rose-500', 'bg-orange-500', 'bg-cyan-500'];
+            const index = id.charCodeAt(id.length - 1) % colors.length;
+            return colors[index];
+        };
+
+        // --- COMPONENTS ---
+
+        const RankBadge = ({ rank }) => {
+            if (rank === 1) return <div className="w-8 h-8 flex items-center justify-center bg-yellow-500 text-black font-bold rounded clip-path-badge shadow-[0_0_15px_rgba(234,179,8,0.6)]">1</div>;
+            if (rank === 2) return <div className="w-8 h-8 flex items-center justify-center bg-slate-300 text-black font-bold rounded clip-path-badge">2</div>;
+            if (rank === 3) return <div className="w-8 h-8 flex items-center justify-center bg-amber-700 text-white font-bold rounded clip-path-badge">3</div>;
+            return <div className="w-8 h-8 flex items-center justify-center text-slate-500 font-bold font-hud">{rank}</div>;
+        };
+
+        // --- SPECTATOR VIEW ---
+        const SpectatorView = ({ data }) => {
+            const rounds = data?.rounds || [];
+            
+            const sortedTeams = useMemo(() => {
+                if (!data?.teams) return [];
+                const teams = [...data.teams].map(t => ({
+                    ...t,
+                    calculatedTotal: calculateTotalScore(t)
+                })).sort((a, b) => b.calculatedTotal - a.calculatedTotal);
+                
+                // Calculate max score for progress bars
+                const maxScore = Math.max(...teams.map(t => t.calculatedTotal), 100); 
+                return teams.map(t => ({...t, percentage: (t.calculatedTotal / maxScore) * 100}));
+            }, [data]);
+
+            const currentRoundName = rounds[data?.currentRoundIndex]?.name || "Finale";
+
+            // WAITING SCREEN
+            if (!data || !data.isGameStarted) {
+                return (
+                    <div className="min-h-screen flex flex-col items-center justify-center p-4 relative overflow-hidden">
+                        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-blue-900/20 via-transparent to-transparent animate-pulse-slow"></div>
+                        
+                        <div className="cyber-clip bg-cyber-panel/80 backdrop-blur-xl border border-white/10 p-16 max-w-7xl w-full text-center relative z-10 shadow-2xl">
+                            <div className="mb-8">
+                            <h1 className="text-4xl md:text-7xl whitespace-nowrap font-display font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-cyan-400 to-blue-500 tracking-tighter drop-shadow-[0_0_15px_rgba(56,189,248,0.5)]">
+                                ⚔ BATTLE  OF BRAINS  ⚔
+                            </h1>
+                            </div>
+                            
+                            <div className="inline-flex items-center gap-3 px-8 py-3 bg-blue-500/10 border border-blue-500/30 rounded-none cyber-clip-sm">
+                                <div className="w-3 h-3 bg-blue-500 rounded-full animate-ping"></div>
+                                <span className="font-display font-bold text-blue-400 tracking-[0.3em] uppercase">System Standby</span>
+                            </div>
+                            
+                            <div className="mt-12 grid grid-cols-2 md:grid-cols-4 gap-4 opacity-50">
+                                {[...Array(4)].map((_,i) => (
+                                    <div key={i} className="h-1 bg-slate-800 rounded overflow-hidden">
+                                        <div className="h-full bg-blue-500 animate-[loading_2s_ease-in-out_infinite]" style={{animationDelay: `${i*0.2}s`}}></div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                );
+            }
+
+            // SCOREBOARD SCREEN
+            return (
+                <div className="min-h-screen p-4 md:p-8 flex flex-col pt-8 max-w-[1920px] mx-auto">
+                    <header className="flex flex-col md:flex-row justify-between items-end mb-10 border-b-2 border-white/5 pb-4 px-4">
+                        <div>
+                            <div className="flex items-center gap-4 mb-2">
+                                <span className="flex h-3 w-3 relative">
+                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                                    <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
+                                </span>
+                                <span className="font-hud text-red-400 font-bold tracking-widest text-sm uppercase">Live Feed</span>
+                            </div>
+                            <h1 className="text-5xl md:text-6xl font-display font-bold text-white uppercase tracking-tighter">
+                                Leader<span className="text-blue-500">board</span>
+                            </h1>
+                        </div>
+                        <div className="cyber-clip bg-blue-900/20 border border-blue-500/30 px-8 py-4 text-right">
+                            <div className="text-xs text-blue-300 font-hud font-bold uppercase tracking-widest mb-1">Current Round</div>
+                            <div className="text-4xl font-display font-bold text-yellow-400 text-glow-gold">{currentRoundName}</div>
+                        </div>
+                    </header>
+
+                    <div className="flex-grow space-y-3">
+                        <div className="grid grid-cols-12 gap-4 px-6 py-3 text-slate-500 font-hud font-bold uppercase tracking-widest text-sm">
+                            <div className="col-span-1 text-center">Rank</div>
+                            <div className="col-span-3">Team</div>
+                            <div className="col-span-2 hidden md:block">Performance</div>
+                            <div className="col-span-4 flex justify-between px-4">
+                                <span>Round Scores</span>
+                            </div>
+                            <div className="col-span-2 text-right">Total</div>
+                        </div>
+
+                        {sortedTeams.map((team, index) => {
+                            const isLeader = index === 0;
+                            return (
+                                <div key={team.id} 
+                                    className={`relative group grid grid-cols-12 gap-4 items-center px-6 py-5 
+                                    ${isLeader ? 'bg-gradient-to-r from-yellow-900/20 to-transparent border-l-4 border-yellow-500' : 'bg-slate-900/40 border-l-4 border-slate-700'} 
+                                    cyber-clip transition-all duration-500 hover:transform hover:translate-x-2 hover:bg-slate-800/60`}
+                                >
+                                    <div className="col-span-1 flex justify-center">
+                                        <RankBadge rank={index + 1} />
+                                    </div>
+
+                                    <div className="col-span-3 flex items-center gap-4">
+                                        <div className={`w-12 h-12 ${getRandomColor(team.id)} rounded-lg flex items-center justify-center font-display font-bold text-white text-lg shadow-lg`}>
+                                            {getInitials(team.name)}
+                                        </div>
+                                        <div>
+                                            <div className={`font-display font-bold text-xl tracking-wide ${isLeader ? 'text-yellow-100' : 'text-white'}`}>
+                                                {team.name}
+                                                {isLeader && <span className="ml-2 inline-block text-yellow-500"><Icons.Trophy className="w-4 h-4" /></span>}
+                                            </div>
+                                            <div className="h-1 w-full bg-slate-800 mt-2 rounded-full overflow-hidden md:hidden">
+                                                <div className="h-full bg-blue-500" style={{width: `${team.percentage}%`}}></div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="col-span-2 hidden md:flex items-center">
+                                        <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden border border-white/5">
+                                            <div 
+                                                className={`h-full transition-all duration-1000 ease-out ${isLeader ? 'bg-yellow-500 shadow-[0_0_10px_#eab308]' : 'bg-blue-500'}`} 
+                                                style={{width: `${team.percentage}%`}}
+                                            ></div>
+                                        </div>
+                                    </div>
+
+                                    {/* DYNAMIC ROUNDS SECTION: Added overflow-x-auto and justified start */}
+                                    <div className="col-span-4 flex justify-start items-center px-4 gap-4 overflow-x-auto no-scrollbar">
+                                        {rounds.map((r, rIdx) => { 
+                                            const score = getRoundScore(team, r.id);
+                                            const isCurrent = data.currentRoundIndex === rounds.findIndex(round => round.id === r.id);
+                                            return (
+                                                <div key={r.id} className="text-center min-w-[3rem] flex-shrink-0">
+                                                    <div className={`text-[10px] uppercase font-bold mb-1 ${isCurrent ? 'text-blue-400' : 'text-slate-600'}`}>
+                                                        {r.name.substring(0,6)}
+                                                    </div>
+                                                    <div className={`font-hud font-bold text-xl ${isCurrent ? 'text-white scale-110' : 'text-slate-500'}`}>
+                                                        {score !== null ? score : '-'}
+                                                    </div>
+                                                </div>
+                                            )
+                                        })}
+                                    </div>
+
+                                    <div className="col-span-2 text-right">
+                                        <div className={`font-display font-bold text-4xl tracking-tighter ${isLeader ? 'text-yellow-400 text-glow-gold' : 'text-blue-400 text-glow'}`}>
+                                            {team.calculatedTotal}
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            );
+        };
+
+        // --- LOGIN VIEW (NEW) ---
+        const AdminLogin = ({ onLogin, onBack }) => {
+            const [username, setUsername] = useState('');
+            const [password, setPassword] = useState('');
+            const [error, setError] = useState('');
+            const [loading, setLoading] = useState(false);
+
+            const handleLogin = async (e) => {
+                e.preventDefault();
+                setLoading(true);
+                setError('');
+                
+                try {
+                    // NEW: Use server-side verification
+                    await API.login(username, password);
+                    setLoading(false);
+                    onLogin();
+                } catch (err) {
+                    setLoading(false);
+                    setError('Access Denied: Invalid Credentials');
+                    setPassword('');
+                }
+            };
+
+            return (
+                <div className="min-h-screen flex flex-col items-center justify-center relative overflow-hidden text-white">
+                    <div className="absolute inset-0 bg-cyber-dark z-0"></div>
+                    {/* Animated background elements */}
+                    <div className="absolute inset-0 z-0 opacity-20 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-blue-900 via-transparent to-transparent animate-pulse-slow"></div>
+                    
+                    <div className="relative z-10 p-8 bg-slate-900/90 border border-slate-700 rounded-xl shadow-2xl max-w-md w-full cyber-clip">
+                        <div className="mb-6 text-center">
+                            <div className="w-16 h-16 bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-4 border border-emerald-500/30 shadow-[0_0_15px_rgba(16,185,129,0.2)]">
+                                <Icons.Lock className="w-8 h-8 text-emerald-500" />
+                            </div>
+                            <h2 className="text-2xl font-display font-bold text-white tracking-wider">SECURE ACCESS</h2>
+                            <p className="text-slate-400 text-xs uppercase tracking-[0.2em] mt-1">Authorized Personnel Only</p>
+                        </div>
+
+                        <form onSubmit={handleLogin} className="space-y-4">
+                            <div>
+                                <label className="block text-xs uppercase text-slate-500 font-bold mb-1 ml-1">Operator ID</label>
+                                <input 
+                                    type="text" 
+                                    value={username}
+                                    onChange={e => setUsername(e.target.value)}
+                                    className="w-full bg-slate-800 border border-slate-700 rounded p-3 text-white focus:border-emerald-500 focus:bg-slate-800 outline-none transition-all font-mono"
+                                    placeholder="Enter ID"
+                                    autoFocus
+                                    disabled={loading}
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-xs uppercase text-slate-500 font-bold mb-1 ml-1">Passcode</label>
+                                <input 
+                                    type="password" 
+                                    value={password}
+                                    onChange={e => setPassword(e.target.value)}
+                                    className="w-full bg-slate-800 border border-slate-700 rounded p-3 text-white focus:border-emerald-500 focus:bg-slate-800 outline-none transition-all font-mono"
+                                    placeholder="••••••••"
+                                    disabled={loading}
+                                />
+                            </div>
+                            
+                            {error && (
+                                <div className="text-red-400 text-xs font-bold text-center bg-red-900/20 p-2 rounded border border-red-500/30 flex items-center justify-center gap-2">
+                                    <Icons.Alert className="w-4 h-4" /> {error}
+                                </div>
+                            )}
+
+                            <div className="flex gap-3 pt-4">
+                                <button type="button" onClick={onBack} disabled={loading} className="flex-1 py-3 rounded border border-slate-600 text-slate-400 font-bold text-sm hover:bg-slate-800 hover:text-white transition-colors disabled:opacity-50">
+                                    CANCEL
+                                </button>
+                                <button type="submit" disabled={loading} className="flex-1 py-3 rounded bg-emerald-600 text-white font-bold text-sm hover:bg-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.4)] transition-all flex justify-center items-center gap-2 disabled:opacity-50">
+                                    {loading ? 'VERIFYING...' : 'AUTHENTICATE'}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )
+        }
+
+        // --- ADMIN VIEW ---
+        const AdminView = ({ data }) => {
+            const [localState, setLocalState] = useState(data);
+            const [scoreInput, setScoreInput] = useState({});
+            const [isConfigMode, setIsConfigMode] = useState(false);
+            const fileInputRef = useRef(null);
+
+            useEffect(() => { if (data) setLocalState(data); }, [data]);
+
+            const saveToServer = async (newState) => {
+                setLocalState(newState);
+                await API.updateState(newState);
+            };
+
+            const toggleGameStart = () => saveToServer({ ...localState, isGameStarted: !localState.isGameStarted });
+            const handleRoundChange = (e) => saveToServer({ ...localState, currentRoundIndex: parseInt(e.target.value) });
+
+            const adjustScore = (teamId, delta) => {
+                if (!localState.rounds.length) return alert("Add a round first!");
+                const currentRoundId = localState.rounds[localState.currentRoundIndex].id;
+                const updatedTeams = localState.teams.map(t => {
+                    if (t.id === teamId) {
+                        const currentScores = t.scores || {};
+                        const oldScore = currentScores[currentRoundId] || 0;
+                        return { ...t, scores: { ...currentScores, [currentRoundId]: oldScore + delta } };
+                    }
+                    return t;
+                });
+                saveToServer({ ...localState, teams: updatedTeams });
+            };
+
+            const handleCustomScore = (teamId) => {
+                const val = parseInt(scoreInput[teamId]);
+                if (!isNaN(val)) {
+                    adjustScore(teamId, val); // Using logic that adds to existing. If you want SET, change this.
+                    setScoreInput({ ...scoreInput, [teamId]: '' });
+                }
+            };
+
+            // Config Ops
+            const addTeam = () => saveToServer({ ...localState, teams: [...localState.teams, { id: `t${Date.now()}`, name: `Team ${localState.teams.length + 1}`, scores: {} }] });
+            const removeTeam = (id) => confirm("Delete team?") && saveToServer({ ...localState, teams: localState.teams.filter(t => t.id !== id) });
+            const updateTeamName = (id, name) => saveToServer({ ...localState, teams: localState.teams.map(t => t.id === id ? { ...t, name } : t) });
+            const addRound = () => saveToServer({ ...localState, rounds: [...localState.rounds, { id: `r${Date.now()}`, name: `Round ${localState.rounds.length + 1}` }] });
+            const removeRound = (index) => {
+                if (localState.rounds.length <= 1) return alert("Keep one round.");
+                if (confirm("Delete round?")) {
+                    const newRounds = localState.rounds.filter((_, i) => i !== index);
+                    saveToServer({ ...localState, rounds: newRounds, currentRoundIndex: Math.min(localState.currentRoundIndex, newRounds.length - 1) });
+                }
+            };
+            const updateRoundName = (index, name) => {
+                const newRounds = [...localState.rounds];
+                newRounds[index] = { ...newRounds[index], name };
+                saveToServer({ ...localState, rounds: newRounds });
+            };
+            
+            // --- NEW FEATURES: RESET HANDLERS ---
+            const fullReset = async () => {
+                if(confirm("⚠️ FACTORY RESET?\n\nThis will delete ALL teams, round names, and scores.\nAre you absolutely sure?")) {
+                    await API.resetGame();
+                    window.location.reload();
+                }
+            };
+
+            const handleNewGame = () => {
+                if(confirm("⚠ START NEW GAME?\n\nThis will keep current teams/names but RESET ALL SCORES to 0.\nAre you sure?")) {
+                    const resetTeams = localState.teams.map(t => ({ ...t, scores: {} }));
+                    saveToServer({ 
+                        ...localState, 
+                        teams: resetTeams,
+                        currentRoundIndex: 0,
+                        isGameStarted: false 
+                    });
+                }
+            };
+
+            // Files
+            const handleDownload = () => {
+                const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(localState, null, 2));
+                const node = document.createElement('a');
+                node.href = dataStr;
+                node.download = `quiz_battle_${new Date().toISOString().slice(0,10)}.json`;
+                node.click();
+            };
+            const handleUpload = (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (ev) => {
+                    try {
+                        const json = JSON.parse(ev.target.result);
+                        if(confirm("Overwrite data?")) saveToServer(json);
+                    } catch { alert("Invalid JSON"); }
+                };
+                reader.readAsText(file);
+                e.target.value = null;
+            };
+
+            const currentRoundId = localState.rounds[localState.currentRoundIndex]?.id;
+
+            return (
+                <div className="min-h-screen p-4 pb-24 font-sans bg-[#0b1121]">
+                    {/* Admin Header */}
+                    <div className="bg-slate-900/90 backdrop-blur border-b border-white/10 p-4 fixed top-0 left-0 right-0 z-50 flex flex-col md:flex-row justify-between items-center shadow-2xl">
+                        <div className="flex items-center gap-4 mb-2 md:mb-0">
+                            <h2 className="text-xl font-display font-bold text-white tracking-widest">ADMIN<span className="text-blue-500">CONSOLE</span></h2>
+                            <button onClick={() => setIsConfigMode(!isConfigMode)} className={`px-3 py-1 text-xs font-bold uppercase tracking-wider rounded border ${isConfigMode ? 'bg-blue-600 border-blue-600 text-white' : 'border-slate-600 text-slate-400'}`}>
+                                {isConfigMode ? 'Close Config' : 'Config Mode'}
+                            </button>
+                        </div>
+                        
+                        <div className="flex items-center gap-4">
+                            <div className="flex items-center bg-slate-800 rounded px-2">
+                                <span className="text-xs text-slate-500 font-bold px-2 uppercase">Round</span>
+                                <select value={localState.currentRoundIndex} onChange={handleRoundChange} className="bg-transparent text-yellow-400 font-bold py-2 outline-none cursor-pointer">
+                                    {localState.rounds.map((r, i) => <option key={r.id} value={i}>{r.name}</option>)}
+                                </select>
+                            </div>
+                            <button onClick={toggleGameStart} className={`w-32 py-2 rounded font-bold uppercase text-sm tracking-wider flex items-center justify-center gap-2 transition-all ${localState.isGameStarted ? 'bg-red-500/20 text-red-500 border border-red-500' : 'bg-emerald-500 text-black hover:bg-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.5)]'}`}>
+                                {localState.isGameStarted ? 'STOP' : 'GO LIVE'}
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="mt-20 max-w-7xl mx-auto">
+                        {/* Config Panel */}
+                        {isConfigMode && (
+                            <div className="mb-8 grid grid-cols-1 md:grid-cols-2 gap-6 animate-[fadeIn_0.3s]">
+                                <div className="bg-slate-800/50 p-6 rounded-xl border border-white/5">
+                                    <div className="flex justify-between items-center mb-4">
+                                        <h3 className="font-bold text-blue-400 uppercase tracking-widest text-sm">Teams</h3>
+                                        <button onClick={addTeam} className="bg-blue-600 p-1 rounded hover:bg-blue-500"><Icons.Plus className="w-4 h-4 text-white"/></button>
+                                    </div>
+                                    <div className="space-y-2 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
+                                        {localState.teams.map(t => (
+                                            <div key={t.id} className="flex gap-2">
+                                                <input className="bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-white flex-grow focus:border-blue-500 outline-none" value={t.name} onChange={(e) => updateTeamName(t.id, e.target.value)} />
+                                                <button onClick={() => removeTeam(t.id)} className="text-slate-500 hover:text-red-500"><Icons.Trash className="w-4 h-4"/></button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                                <div className="bg-slate-800/50 p-6 rounded-xl border border-white/5">
+                                    <div className="flex justify-between items-center mb-4">
+                                        <h3 className="font-bold text-blue-400 uppercase tracking-widest text-sm">Rounds</h3>
+                                        <button onClick={addRound} className="bg-blue-600 p-1 rounded hover:bg-blue-500"><Icons.Plus className="w-4 h-4 text-white"/></button>
+                                    </div>
+                                    <div className="space-y-2 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
+                                        {localState.rounds.map((r, i) => (
+                                            <div key={r.id} className="flex gap-2">
+                                                <input className="bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-white flex-grow focus:border-blue-500 outline-none" value={r.name} onChange={(e) => updateRoundName(i, e.target.value)} />
+                                                <button onClick={() => removeRound(i)} className="text-slate-500 hover:text-red-500"><Icons.Trash className="w-4 h-4"/></button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                                <div className="col-span-full flex flex-wrap gap-4 bg-slate-800/80 p-4 rounded-xl items-center">
+                                    <button onClick={handleDownload} className="px-4 py-2 bg-slate-700 rounded text-sm font-bold flex gap-2 items-center hover:bg-slate-600"><Icons.Save className="w-4 h-4"/> Backup</button>
+                                    <button onClick={() => fileInputRef.current.click()} className="px-4 py-2 bg-blue-600 rounded text-sm font-bold flex gap-2 items-center hover:bg-blue-500"><Icons.Upload className="w-4 h-4"/> Restore</button>
+                                    <input type="file" ref={fileInputRef} onChange={handleUpload} className="hidden" accept=".json"/>
+                                    
+                                    <div className="flex-grow"></div>
+                                    <div className="h-6 w-px bg-slate-600 mx-2"></div>
+                                    
+                                    {/* NEW BUTTONS */}
+                                    <button onClick={handleNewGame} className="px-4 py-2 bg-violet-600 rounded text-sm font-bold flex gap-2 items-center hover:bg-violet-500 text-white shadow-lg shadow-violet-500/20">
+                                        <Icons.Refresh className="w-4 h-4"/> New Game
+                                    </button>
+                                    
+                                    <button onClick={fullReset} className="px-4 py-2 bg-red-500/10 border border-red-500/50 rounded text-sm font-bold flex gap-2 items-center hover:bg-red-500 hover:text-white text-red-500 transition-all">
+                                        <Icons.Alert className="w-4 h-4"/> Factory Reset
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Team Cards Grid */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
+                            {localState.teams.map(team => {
+                                const roundScore = getRoundScore(team, currentRoundId); // This returns null for missing or number
+                                const displayScore = roundScore !== null ? roundScore : 0; // In admin we show 0 for missing so you can edit it comfortably
+                                
+                                return (
+                                    <div key={team.id} className="bg-slate-800 rounded-xl overflow-hidden border border-slate-700 shadow-xl flex flex-col">
+                                        {/* Card Header */}
+                                        <div className="p-4 bg-slate-900 border-b border-slate-700 flex justify-between items-center">
+                                            <div className="flex items-center gap-3">
+                                                <div className={`w-8 h-8 ${getRandomColor(team.id)} rounded flex items-center justify-center font-bold text-xs`}>{getInitials(team.name)}</div>
+                                                <span className="font-bold text-white truncate max-w-[120px]">{team.name}</span>
+                                            </div>
+                                            <div className="text-right">
+                                                <div className="text-[10px] uppercase text-slate-500 font-bold">Total</div>
+                                                <div className="text-emerald-400 font-hud font-bold text-xl">{calculateTotalScore(team)}</div>
+                                            </div>
+                                        </div>
+
+                                        {/* Big Score Display */}
+                                        <div className="p-6 text-center bg-slate-800/50">
+                                            <div className="text-xs uppercase text-blue-400 font-bold tracking-widest mb-1">Current Round</div>
+                                            <div className={`text-5xl font-hud font-bold ${displayScore < 0 ? 'text-red-500' : 'text-white'}`}>{displayScore}</div>
+                                        </div>
+
+                                        {/* Controls */}
+                                        <div className="p-2 grid grid-cols-2 gap-2 bg-slate-900/50 flex-grow">
+                                            <button onClick={() => adjustScore(team.id, +4)} className="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-500 border border-emerald-500/20 py-4 rounded font-bold text-lg transition-colors">+4</button>
+                                            <button onClick={() => adjustScore(team.id, +1)} className="bg-teal-500/10 hover:bg-teal-500/20 text-teal-500 border border-teal-500/20 py-4 rounded font-bold text-lg transition-colors">+1</button>
+                                            <button onClick={() => adjustScore(team.id, -2)} className="bg-orange-500/10 hover:bg-orange-500/20 text-orange-500 border border-orange-500/20 py-4 rounded font-bold text-lg transition-colors">-2</button>
+                                            <button onClick={() => adjustScore(team.id, -1)} className="bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/20 py-4 rounded font-bold text-lg transition-colors">-1</button>
+                                        </div>
+
+                                        {/* Custom Input */}
+                                        <div className="p-3 bg-slate-900 border-t border-slate-700 flex gap-2">
+                                            <input 
+                                                type="number" 
+                                                placeholder="Set..." 
+                                                className="w-full bg-slate-800 border border-slate-600 rounded px-3 text-white text-sm outline-none focus:border-blue-500"
+                                                value={scoreInput[team.id] || ''}
+                                                onChange={(e) => setScoreInput({...scoreInput, [team.id]: e.target.value})}
+                                                onKeyDown={(e) => e.key === 'Enter' && handleCustomScore(team.id)}
+                                            />
+                                            <button onClick={() => handleCustomScore(team.id)} className="bg-blue-600 hover:bg-blue-500 px-3 rounded text-white"><Icons.Plus className="w-4 h-4"/></button>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const RoleSelector = ({ onSelect }) => (
+            <div className="min-h-screen flex flex-col items-center justify-center relative overflow-hidden">
+                <div className="absolute inset-0 bg-cyber-dark z-0"></div>
+                
+                <div className="relative z-10 p-10 max-w-5xl w-full">
+                    <div className="text-center mb-10">
+                        <h1 className="text-6xl whitespace-nowrap font-display font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-500 to-cyan-400 tracking-tighter mb-2">⚔ BATTLE  OF BRAINS  ⚔</h1>
+                        <div className="h-1 w-24 bg-blue-600 mx-auto rounded-full"></div>
+                    </div>
+                    
+                    <div className="grid gap-4">
+                        <button onClick={() => onSelect('spectator')} className="group relative bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-blue-500 p-6 rounded-xl text-left transition-all duration-300 overflow-hidden">
+                            <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-100 group-hover:scale-110 transition-all">
+                                <Icons.Monitor className="w-16 h-16 text-blue-500" />
+                            </div>
+                            <h2 className="text-2xl font-bold text-white mb-1 group-hover:text-blue-400">Spectator Screen</h2>
+                            <p className="text-slate-400 text-sm">Launch the main public display.</p>
+                        </button>
+
+                        <button onClick={() => onSelect('admin')} className="group relative bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-emerald-500 p-6 rounded-xl text-left transition-all duration-300 overflow-hidden">
+                            <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-100 group-hover:scale-110 transition-all">
+                                <Icons.Settings className="w-16 h-16 text-emerald-500" />
+                            </div>
+                            <h2 className="text-2xl font-bold text-white mb-1 group-hover:text-emerald-400">Admin Control</h2>
+                            <p className="text-slate-400 text-sm">Manage scores, teams, and rounds.</p>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
+
+        const App = () => {
+            const [view, setView] = useState('selector');
+            const [gameData, setGameData] = useState(null);
+
+            useEffect(() => {
+                const fetchData = async () => {
+                    try {
+                        const data = await API.getState();
+                        setGameData(data);
+                    } catch (e) { console.error("Err", e); }
+                };
+                fetchData();
+                const interval = setInterval(fetchData, 1000);
+                return () => clearInterval(interval);
+            }, []);
+
+            // Handle Role Selection (Interpreting the button clicks from RoleSelector)
+            const handleRoleSelect = (role) => {
+                if (role === 'admin') {
+                    setView('login'); // Redirect to Login instead of direct Admin
+                } else {
+                    setView('spectator');
+                }
+            };
+
+            const handleLoginSuccess = () => {
+                setView('admin');
+            };
+
+            if (view === 'selector') return <RoleSelector onSelect={handleRoleSelect} />;
+            if (view === 'login') return <AdminLogin onLogin={handleLoginSuccess} onBack={() => setView('selector')} />;
+            if (view === 'admin') return <AdminView data={gameData} />;
+            return <SpectatorView data={gameData} />;
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
