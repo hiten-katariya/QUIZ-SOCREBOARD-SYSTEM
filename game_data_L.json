@@ -1,0 +1,80 @@
+{
+    "isGameStarted": false,
+    "currentRoundIndex": 0,
+    "rounds": [
+        {
+            "id": "r1",
+            "name": "Round 1"
+        },
+        {
+            "id": "r2",
+            "name": "Round 2"
+        },
+        {
+            "id": "r3",
+            "name": "Round 3"
+        },
+        {
+            "id": "r4",
+            "name": "Round 4"
+        },
+        {
+            "id": "r5",
+            "name": "Round 5"
+        },
+        {
+            "id": "r6",
+            "name": "Round 6"
+        }
+    ],
+    "teams": [
+        {
+            "id": "t1",
+            "name": "Team 1",
+            "scores": {},
+            "totalScore": 0
+        },
+        {
+            "id": "t2",
+            "name": "Team 2",
+            "scores": {},
+            "totalScore": 0
+        },
+        {
+            "id": "t3",
+            "name": "Team 3",
+            "scores": {},
+            "totalScore": 0
+        },
+        {
+            "id": "t4",
+            "name": "Team 4",
+            "scores": {},
+            "totalScore": 0
+        },
+        {
+            "id": "t5",
+            "name": "Team 5",
+            "scores": {},
+            "totalScore": 0
+        },
+        {
+            "id": "t6",
+            "name": "Team 6",
+            "scores": {},
+            "totalScore": 0
+        },
+        {
+            "id": "t7",
+            "name": "Team 7",
+            "scores": {},
+            "totalScore": 0
+        },
+        {
+            "id": "t8",
+            "name": "Team 8",
+            "scores": {},
+            "totalScore": 0
+        }
+    ]
+}
