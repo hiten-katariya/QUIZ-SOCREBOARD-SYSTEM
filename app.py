@@ -1,10 +1,19 @@
+import atexit
 import json
+import logging
 import os
+
 from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
 
+import db
+
+logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
+
 app = Flask(__name__, static_folder='.')
 CORS(app)
+
+atexit.register(db.close_pool)
 
 DATA_FILE = 'game_data.json'
 
@@ -66,7 +75,17 @@ def reset_game():
     save_data(DEFAULT_STATE)
     return jsonify({"status": "reset", "data": DEFAULT_STATE})
 
+
+@app.route('/api/db-test', methods=['GET'])
+def db_test():
+    try:
+        db.run_query("SELECT 1")
+        return jsonify({"status": "ok"})
+    except Exception:
+        return jsonify({"status": "error", "message": "Database connection failed"}), 500
+
 if __name__ == '__main__':
+    db.health_check()
     print("-------------------------------------------------------")
     print(" QUIZ SERVER RUNNING")
     print(" Open your browser to: http://localhost:5000")
